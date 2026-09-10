@@ -1,0 +1,9 @@
+/target
+
+/data/
+/checkpoints/
+/runs/
+
+*.nsys-rep
+*.ncu-rep 
+perf.data*
