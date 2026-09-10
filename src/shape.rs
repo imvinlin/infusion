@@ -54,3 +54,48 @@ impl std::fmt::Debug for Shape {
         write!(f, "{:?}", self.dims())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strides_are_row_major() {
+        assert_eq!(Shape::new(&[2, 3, 4]).contiguous_strides(), [12, 4, 1, 0]);
+        assert_eq!(Shape::new(&[5]).contiguous_strides(), [1, 0, 0, 0]);
+        assert_eq!(Shape::new(&[]).contiguous_strides(), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn numel_is_the_product_of_dims() {
+        assert_eq!(Shape::new(&[2, 3, 4]).numel(), 24);
+        assert_eq!(Shape::new(&[7]).numel(), 7);
+        assert_eq!(Shape::new(&[]).numel(), 1);
+    }
+
+    #[test]
+    fn size_one_axes_carry_an_unused_stride() {
+        assert_eq!(Shape::new(&[1, 1, 7]).contiguous_strides(), [7, 7, 1, 0]);
+    }
+
+    #[test]
+    fn zero_sized_dim_has_no_elements_and_does_not_panic() {
+        let s = Shape::new(&[2, 0, 3]);
+        assert_eq!(s.numel(), 0);
+        assert_eq!(s.contiguous_strides(), [0, 3, 1, 0]);
+    }
+
+    #[test]
+    fn dims_hides_the_padding() {
+        let s = Shape::new(&[2, 3]);
+        assert_eq!(s.rank(), 2);
+        assert_eq!(s.dims(), &[2, 3]);
+        assert_eq!(format!("{:?}", s), "[2, 3]");
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds MAX_RANK")]
+    fn rank_above_max_panics() {
+        Shape::new(&[1, 2, 3, 4, 5]);
+    }
+}
