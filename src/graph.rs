@@ -234,4 +234,83 @@ mod tests {
         let mut g: Graph<f64> = Graph::new();
         g.from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[2, 3]);
     }
+
+    #[test]
+    fn a_transposed_size_one_axis_is_still_contiguous() {
+        let mut g: Graph<f64> = Graph::new();
+        let a = g.from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0], &[1, 7]);
+        let t = g.transpose(a, 0, 1);
+        assert_eq!(g.shape(t).dims(), &[7, 1]);
+        assert_eq!(g.strides(t), [1, 7, 0, 0]);
+        assert!(g.is_contiguous(t));
+        assert_eq!(g.cpu(t), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    }
+
+    #[test]
+    fn transpose_swaps_metadata_and_shares_storage() {
+        let (mut g, a) = table();
+        let t = g.transpose(a, 0, 1);
+        assert_eq!(g.shape(t).dims(), &[3, 2]);
+        assert_eq!(g.strides(t), [1, 3, 0, 0]);
+        assert!(!g.is_contiguous(t));
+        assert_eq!(g.tensor_count(), 2);
+        assert_eq!(g.storage_count(), 1);
+    }
+
+    #[test]
+    fn contiguous_materialises_in_row_major_order() {
+        let (mut g, a) = table();
+        let t = g.transpose(a, 0, 1);
+        let c = g.contiguous(t);
+        assert_eq!(g.cpu(c), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        assert_eq!(g.strides(c), [2, 1, 0, 0]);
+        assert_eq!(g.storage_count(), 2);
+    }
+
+    #[test]
+    fn reshape_is_free_and_differs_from_transpose() {
+        let (mut g, a) = table();
+        let r = g.reshape(a, &[3, 2]);
+        assert_eq!(g.cpu(r), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(g.storage_count(), 1);
+
+        let t = g.transpose(a, 0, 1);
+        let c = g.contiguous(t);
+        assert_eq!(g.shape(r).dims(), g.shape(c).dims());
+        assert_ne!(g.cpu(r), g.cpu(c));
+
+        assert_eq!(g.tensor_count(), 4);
+        assert_eq!(g.storage_count(), 2);
+    }
+
+    #[test]
+    fn contiguous_is_a_no_op_on_packed_data() {
+        let (mut g, a) = table();
+        let c = g.contiguous(a);
+        assert_eq!(c, a);
+        assert_eq!(g.storage_count(), 1);
+    }
+
+    #[test]
+    fn summing_does_not_depend_on_layout() {
+        let mut g: Graph<f64> = Graph::new();
+        let data: Vec<f64> = (0..24).map(|i| i as f64).collect();
+        let a = g.from_slice(&data, &[2, 3, 4]);
+        let direct: f64 = g.cpu(a).iter().sum();
+        assert_eq!(direct, 276.0);
+
+        let t = g.transpose(a, 0, 2);
+        let c = g.contiguous(t);
+        let walked: f64 = g.cpu(c).iter().sum();
+        assert_eq!(walked, 276.0);
+        assert_ne!(g.cpu(c), g.cpu(a));
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape needs a contiguous tensor")]
+    fn reshape_rejects_a_strided_view() {
+        let (mut g, a) = table();
+        let t = g.transpose(a, 0, 1);
+        g.reshape(t, &[6]);
+    }
 }
