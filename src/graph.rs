@@ -105,6 +105,81 @@ impl<T: Copy + Default> Graph<T> {
         let t = self.tensor(id);
         &self.storages[t.storage.0 as usize][t.offset..t.offset + t.shape.numel()]
     }
+
+    // second tensor record -> no data move
+    fn push_view(&mut self, base: TensorId, shape: Shape, strides: [usize; MAX_RANK]) -> TensorId {
+        let b = *self.tensor(base);
+        let id = TensorId(self.tensors.len() as u32);
+        self.tensors.push(Tensor {
+            shape,
+            strides,
+            offset: b.offset,
+            storage: b.storage,
+        });
+        id
+    }
+
+    // reinterpret dims of the continguous tensor -> no data move
+    pub fn reshape(&mut self, id: TensorId, dims: &[usize]) -> TensorId {
+        assert!(
+            self.is_contiguous(id),
+            "reshape needs a contiguous tensor; call contiguous() first"
+        );
+        let shape = Shape::new(dims);
+        assert_eq!(
+            shape.numel(),
+            self.numel(id),
+            "reshape {:?} -> {:?} changes the elements count",
+            self.shape(id),
+            shape
+        );
+        self.push_view(id, shape, shape.contiguous_strides())
+    }
+
+    pub fn transpose(&mut self, id: TensorId, i: usize, j: usize) -> TensorId {
+        let t = *self.tensor(id);
+        let rank = t.shape.rank();
+        assert!(
+            i < rank && j < rank,
+            "transpose axes {i},{j} out of range for rank {rank}"
+        );
+        let mut dims = [0usize; MAX_RANK];
+        dims[..rank].copy_from_slice(t.shape.dims());
+        dims.swap(i, j);
+        let mut strides = t.strides;
+        strides.swap(i, j);
+        self.push_view(id, Shape::new(&dims[..rank]), strides)
+    }
+
+    // moves data (IMPORTANT, review again later)
+    pub fn contiguous(&mut self, id: TensorId) -> TensorId {
+        if self.is_contiguous(id) {
+            return id;
+        }
+        let t = *self.tensor(id);
+        let rank = t.shape.rank();
+        let n = t.shape.numel();
+        let src = &self.storages[t.storage.0 as usize];
+        let mut out = Vec::with_capacity(n);
+        let mut idx = [0usize; MAX_RANK];
+        for _ in 0..n {
+            let mut off = t.offset;
+            // offset = dot prod of index and stride
+            for (&i, &s) in idx.iter().zip(&t.strides).take(rank) {
+                off += i * s;
+            }
+            out.push(src[off]);
+            // odometer style last axis and carry left
+            for k in (0..rank).rev() {
+                idx[k] += 1;
+                if idx[k] < t.shape.dim(k) {
+                    break;
+                }
+                idx[k] = 0;
+            }
+        }
+        self.push(t.shape, out)
+    }
 }
 
 #[cfg(test)]
