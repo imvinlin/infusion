@@ -7,11 +7,23 @@ pub struct TensorId(u32);
 pub struct StorageId(u32);
 
 #[derive(Clone, Copy, Debug)]
+pub enum Op {
+    Leaf,
+}
+
+#[derive(Clone, Copy, Debug)]
 struct Tensor {
     shape: Shape,
     strides: [usize; MAX_RANK],
     offset: usize,
     storage: StorageId,
+    op: Op,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Mark {
+    tensors: usize,
+    storages: usize,
 }
 
 #[derive(Default)]
@@ -28,7 +40,7 @@ impl<T: Copy + Default> Graph<T> {
         }
     }
 
-    pub fn push(&mut self, shape: Shape, data: Vec<T>) -> TensorId {
+    pub fn push(&mut self, shape: Shape, data: Vec<T>, op: Op) -> TensorId {
         assert_eq!(
             shape.numel(),
             data.len(),
@@ -45,17 +57,22 @@ impl<T: Copy + Default> Graph<T> {
             strides: shape.contiguous_strides(),
             offset: 0,
             storage,
+            op,
         });
         id
     }
 
+    pub fn leaf(&mut self, shape: Shape, data: Vec<T>) -> TensorId {
+        self.push(shape, data, Op::Leaf)
+    }
+
     pub fn from_slice(&mut self, data: &[T], dims: &[usize]) -> TensorId {
-        self.push(Shape::new(dims), data.to_vec())
+        self.leaf(Shape::new(dims), data.to_vec())
     }
 
     pub fn zeros(&mut self, dims: &[usize]) -> TensorId {
         let shape = Shape::new(dims);
-        self.push(shape, vec![T::default(); shape.numel()])
+        self.leaf(shape, vec![T::default(); shape.numel()])
     }
 
     fn tensor(&self, id: TensorId) -> &Tensor {
@@ -81,6 +98,23 @@ impl<T: Copy + Default> Graph<T> {
 
     pub fn storage_count(&self) -> usize {
         self.storages.len()
+    }
+
+    pub fn op(&self, id: TensorId) -> Op {
+        self.tensor(id).op
+    }
+
+    // take before training step
+    pub fn mark(&self) -> Mark {
+        Mark {
+            tensors: self.tensors.len(),
+            storages: self.storages.len(),
+        }
+    }
+
+    pub fn rewind(&mut self, m: Mark) {
+        self.tensors.truncate(m.tensors);
+        self.storages.truncate(m.storages);
     }
 
     pub fn is_contiguous(&self, id: TensorId) -> bool {
@@ -115,6 +149,7 @@ impl<T: Copy + Default> Graph<T> {
             strides,
             offset: b.offset,
             storage: b.storage,
+            op: Op::Leaf,
         });
         id
     }
@@ -178,7 +213,7 @@ impl<T: Copy + Default> Graph<T> {
                 idx[k] = 0;
             }
         }
-        self.push(t.shape, out)
+        self.push(t.shape, out, Op::Leaf)
     }
 }
 
