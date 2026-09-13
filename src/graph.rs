@@ -348,4 +348,39 @@ mod tests {
         let t = g.transpose(a, 0, 1);
         g.reshape(t, &[6]);
     }
+
+    #[test]
+    fn a_fresh_tensor_is_a_leaf() {
+        let (g, a) = table();
+        assert!(matches!(g.op(a), Op::Leaf));
+    }
+
+    #[test]
+    fn rewind_drops_everything_above_the_mark() {
+        let (mut g, a) = table();
+        let m = g.mark();
+        assert_eq!((g.tensor_count(), g.storage_count()), (1, 1));
+
+        let t = g.transpose(a, 0, 1);
+        let _ = g.contiguous(t);
+        g.zeros(&[100]);
+        assert_eq!((g.tensor_count(), g.storage_count()), (4, 3));
+
+        g.rewind(m);
+        assert_eq!((g.tensor_count(), g.storage_count()), (1, 1));
+        assert_eq!(g.cpu(a), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn marks_nest() {
+        let (mut g, _) = table();
+        let outer = g.mark();
+        g.zeros(&[4]);
+        let inner = g.mark();
+        g.zeros(&[4]);
+        g.rewind(inner);
+        assert_eq!(g.tensor_count(), 2);
+        g.rewind(outer);
+        assert_eq!(g.tensor_count(), 1);
+    }
 }
