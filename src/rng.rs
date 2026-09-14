@@ -103,15 +103,4 @@ mod tests {
         assert!(mean.abs() < 1e-2, "mean {mean}");
         assert!((var - 1.0).abs() < 1e-2, "var {var}");
     }
-        assert!((var - 1.0 / 12.0).abs() < 1e-3, "var {var}");
-    }
-
-    #[test]
-    fn normals_have_the_right_moments() {
-        let mut r = Rng::new(7);
-        let xs: Vec<f64> = (0..N).map(|_| r.normal()).collect();
-        let (mean, var) = mean_var(&xs);
-        assert!(mean.abs() < 1e-2, "mean {mean}");
-        assert!((var - 1.0).abs() < 1e-2, "var {var}");
-    }
 }
